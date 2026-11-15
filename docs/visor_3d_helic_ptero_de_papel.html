@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diseño Helicóptero de Papel - Visor 3D Interactivo</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .sketch-font {
+            font-family: 'Architects Daughter', cursive, sans-serif;
+        }
+
+        /* Fondo estilo libreta cuadriculada */
+        .bg-grid-notebook {
+            background-color: #f8f7f2;
+            background-image: 
+                linear-gradient(#e2decb 1px, transparent 1px),
+                linear-gradient(90deg, #e2decb 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        /* Estilo dark studio */
+        .bg-studio {
+            background: radial-gradient(circle at 50% 35%, #252d3a 0%, #111827 100%);
+        }
+
+        /* Custom Scrollbar for Controls */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 0, 0, 0.35);
+        }
+
+        /* Switch UI */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #3b82f6;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden bg-grid-notebook transition-colors duration-500 text-slate-800" id="mainContainer">
+
+    <!-- 3D WebGL Canvas Container -->
+    <div id="canvas-container" class="absolute inset-0 w-full h-full z-0 cursor-grab active:cursor-grabbing"></div>
+
+    <!-- Header / Título Dibujado a mano como en la libreta -->
+    <header class="absolute top-4 left-4 sm:left-6 z-10 pointer-events-none">
+        <div class="bg-white/85 backdrop-blur-md px-5 py-3 rounded-2xl shadow-lg border border-stone-200 pointer-events-auto">
+            <h1 class="text-xl sm:text-2xl font-bold tracking-wider uppercase sketch-font border-b-2 border-stone-800 pb-0.5 inline-block text-stone-900">
+                DISEÑO HELICOPTERO
+            </h1>
+            <p class="text-xs text-stone-500 mt-1 font-medium flex items-center gap-1.5">
+                <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Modelo paramétrico de aerodinámica en papel
+            </p>
+        </div>
+    </header>
+
+    <!-- Barra de Herramientas Superior Derecha -->
+    <div class="absolute top-4 right-4 z-10 flex items-center gap-2">
+        <!-- Botón Alternar Fondo Cuadrícula / Estudio -->
+        <button id="btnBgToggle" title="Cambiar Fondo (Libreta / Estudio 3D)"
+                class="bg-white/90 backdrop-blur-md p-3 rounded-xl shadow-md border border-stone-200 text-stone-700 hover:text-blue-600 hover:scale-105 transition-all text-sm flex items-center gap-2">
+            <i class="fa-solid fa-shapes"></i>
+            <span class="hidden sm:inline text-xs font-semibold">Fondo</span>
+        </button>
+
+        <!-- Botón Resetear Cámara -->
+        <button id="btnResetCamera" title="Restablecer Vista"
+                class="bg-white/90 backdrop-blur-md p-3 rounded-xl shadow-md border border-stone-200 text-stone-700 hover:text-blue-600 hover:scale-105 transition-all text-sm flex items-center gap-2">
+            <i class="fa-solid fa-camera-rotate"></i>
+            <span class="hidden sm:inline text-xs font-semibold">Vista</span>
+        </button>
+
+        <!-- Botón Desplegar Panel en Móviles -->
+        <button id="btnTogglePanel" class="lg:hidden bg-blue-600 text-white p-3 rounded-xl shadow-lg hover:bg-blue-700 transition-transform">
+            <i class="fa-solid fa-sliders"></i>
+        </button>
+    </div>
+
+    <!-- Botón Flotante Acción Vuelo / Giro Rápido -->
+    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex gap-3">
+        <button id="btnFlight" 
+                class="flex items-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-sm rounded-full shadow-xl shadow-blue-500/30 hover:scale-105 active:scale-95 transition-all duration-200 border border-white/20">
+            <i class="fa-solid fa-play text-xs" id="flightIcon"></i>
+            <span id="flightText">Simular Autorotación</span>
+        </button>
+    </div>
+
+    <!-- Panel Lateral de Configuración Paramétrica -->
+    <aside id="controlsPanel" 
+           class="absolute top-20 bottom-6 right-4 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-white/95 backdrop-blur-md border border-stone-200/80 rounded-2xl shadow-2xl p-5 overflow-y-auto z-20 flex flex-col gap-5 transition-transform duration-300">
+        
+        <div class="flex items-center justify-between pb-3 border-b border-stone-200">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-pen-ruler text-blue-600"></i>
+                <h2 class="font-bold text-stone-800 text-sm tracking-wide uppercase">Parámetros del Boceto</h2>
+            </div>
+            <span class="text-[11px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold border border-blue-200">Escala 1:1</span>
+        </div>
+
+        <!-- 1. Dimensiones (Sliders con rangos marcados en la imagen) -->
+        <div class="space-y-4">
+            <div class="text-xs font-bold uppercase tracking-wider text-stone-400 sketch-font">Dimensiones (cm)</div>
+
+            <!-- Longitud alas (6.5 - 9.5) -->
+            <div class="bg-stone-50/80 p-3 rounded-xl border border-stone-200">
+                <div class="flex justify-between items-center text-xs mb-1.5 font-medium">
+                    <span class="text-stone-700 flex items-center gap-1.5">
+                        <i class="fa-solid fa-arrows-up-down text-indigo-500 text-[10px]"></i>
+                        Longitud alas <span class="text-stone-400 font-normal">(6.5 - 9.5)</span>
+                    </span>
+                    <span class="font-bold text-stone-900 bg-white px-2 py-0.5 rounded shadow-xs border border-stone-200" id="valWingLength">8.0 cm</span>
+                </div>
+                <input id="sliderWingLength" type="range" min="6.5" max="9.5" step="0.1" value="8.0" 
+                       class="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+            </div>
+
+            <!-- Longitud cuerpo (6.5 - 9.5) -->
+            <div class="bg-stone-50/80 p-3 rounded-xl border border-stone-200">
+                <div class="flex justify-between items-center text-xs mb-1.5 font-medium">
+                    <span class="text-stone-700 flex items-center gap-1.5">
+                        <i class="fa-solid fa-arrows-up-down text-blue-500 text-[10px]"></i>
+                        Longitud cuerpo <span class="text-stone-400 font-normal">(6.5 - 9.5)</span>
+                    </span>
+                    <span class="font-bold text-stone-900 bg-white px-2 py-0.5 rounded shadow-xs border border-stone-200" id="valBodyLength">8.0 cm</span>
+                </div>
+                <input id="sliderBodyLength" type="range" min="6.5" max="9.5" step="0.1" value="8.0" 
+                       class="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+            </div>
+
+            <!-- Ancho cuerpo (4.0 - 6.0) -->
+            <div class="bg-stone-50/80 p-3 rounded-xl border border-stone-200">
+                <div class="flex justify-between items-center text-xs mb-1.5 font-medium">
+                    <span class="text-stone-700 flex items-center gap-1.5">
+                        <i class="fa-solid fa-arrows-left-right text-emerald-500 text-[10px]"></i>
+                        Ancho cuerpo <span class="text-stone-400 font-normal">(4.0 - 6.0)</span>
+                    </span>
+                    <span class="font-bold text-stone-900 bg-white px-2 py-0.5 rounded shadow-xs border border-stone-200" id="valBodyWidth">5.0 cm</span>
+                </div>
+                <input id="sliderBodyWidth" type="range" min="4.0" max="6.0" step="0.1" value="5.0" 
+                       class="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+            </div>
+        </div>
+
+        <!-- 2. Aditamentos del boceto (Cinta Celo, Clip) -->
+        <div class="space-y-3 pt-2">
+            <div class="text-xs font-bold uppercase tracking-wider text-stone-400 sketch-font">Opciones del Modelo (si / no)</div>
+
+            <!-- Cinta celo junta alas -->
+            <label class="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+                <span class="text-xs font-medium text-stone-700 flex items-center gap-2">
+                    <i class="fa-solid fa-tape text-amber-500"></i>
+                    Cinta celo en junta alas
+                </span>
+                <input type="checkbox" id="checkTapeJunction" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
+            </label>
+
+            <!-- Cinta celo en cuerpo -->
+            <label class="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+                <span class="text-xs font-medium text-stone-700 flex items-center gap-2">
+                    <i class="fa-solid fa-grip-lines-vertical text-amber-500"></i>
+                    Cinta celo en cuerpo
+                </span>
+                <input type="checkbox" id="checkTapeBody" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
+            </label>
+
+            <!-- Clip metálico -->
+            <label class="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+                <span class="text-xs font-medium text-stone-700 flex items-center gap-2">
+                    <i class="fa-solid fa-paperclip text-slate-500"></i>
+                    Clip metálico en base
+                </span>
+                <input type="checkbox" id="checkClip" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
+            </label>
+
+            <!-- Mostrar Cotas / Dimensiones estilo boceto -->
+            <label class="flex items-center justify-between p-3 rounded-xl bg-blue-50/50 border border-blue-200 cursor-pointer hover:bg-blue-100/50 transition-colors">
+                <span class="text-xs font-medium text-blue-900 flex items-center gap-2">
+                    <i class="fa-solid fa-ruler-combined text-blue-600"></i>
+                    Líneas de cota (Boceto)
+                </span>
+                <input type="checkbox" id="checkDimensions" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
+            </label>
+        </div>
+
+        <!-- 3. Tipo de Papel (Variable a - b en el boceto) -->
+        <div class="space-y-2 pt-2">
+            <div class="text-xs font-bold uppercase tracking-wider text-stone-400 sketch-font">Otra variable: Tipo de papel (a - b)</div>
+            <div class="grid grid-cols-2 gap-2">
+                <button type="button" id="btnPaperA" 
+                        class="p-2.5 rounded-xl border-2 border-blue-600 bg-white font-medium text-xs flex flex-col items-center gap-1 shadow-sm text-stone-800">
+                    <span class="w-5 h-5 rounded-full bg-slate-100 border border-stone-300 shadow-inner"></span>
+                    <span>Papel A (Bond)</span>
+                    <span class="text-[10px] text-stone-400 font-normal">80 g/m² Blanco</span>
+                </button>
+                <button type="button" id="btnPaperB" 
+                        class="p-2.5 rounded-xl border-2 border-stone-200 bg-amber-50/40 font-medium text-xs flex flex-col items-center gap-1 hover:border-amber-400 text-stone-800 transition-colors">
+                    <span class="w-5 h-5 rounded-full bg-[#d2b48c] border border-amber-800/20 shadow-inner"></span>
+                    <span>Papel B (Kraft)</span>
+                    <span class="text-[10px] text-stone-400 font-normal">120 g/m² Rústico</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Guía de navegación rápida -->
+        <div class="pt-3 border-t border-stone-200 text-[11px] text-stone-400 flex justify-between items-center">
+            <span>🖱️ Clic izq: Rotar</span>
+            <span>🔍 Rueda: Zoom</span>
+            <span>🖱️ Clic der: Mover</span>
+        </div>
+    </aside>
+
+    <script>
+        // --- CONSTANTES & ESTADO GLOBAL ---
+        const params = {
+            wingLength: 8.0,   // Rango boceto: 6.5 - 9.5
+            bodyLength: 8.0,   // Rango boceto: 6.5 - 9.5
+            bodyWidth: 5.0,    // Rango boceto: 4.0 - 6.0
+            tapeJunction: true,
+            tapeBody: true,
+            clip: true,
+            showDimensions: true,
+            paperType: 'a',    // 'a' (Blanco bond) o 'b' (Kraft)
+            isFlying: false,
+            bgStyle: 'notebook' // 'notebook' o 'studio'
+        };
+
+        // Escala 3D: 1 unidad = 1 cm
+        let scene, camera, renderer, controls;
+        let helicopterGroup = new THREE.Group();
+        let rotorGroup = new THREE.Group();
+        let dimensionsGroup = new THREE.Group();
+        
+        // Texturas generadas proceduralmente
+        let paperMaterials = {};
+        let tapeMaterial, clipMaterial, foldLineMaterial;
+
+        // --- INICIALIZACIÓN ---
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 1. Escena
+            scene = new THREE.Scene();
+
+            // 2. Cámara
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            resetCamera();
+
+            // 3. Renderer con sombras suaves y antialiasing
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.05;
+            container.appendChild(renderer.domElement);
+
+            // 4. OrbitControls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxDistance = 60;
+            controls.minDistance = 6;
+            controls.target.set(0, 0, 0);
+
+            // 5. Luces de Estudio Realistas
+            setupLights();
+
+            // 6. Materiales
+            createMaterials();
+
+            // 7. Montar Grupos
+            helicopterGroup.add(rotorGroup);
+            scene.add(helicopterGroup);
+            scene.add(dimensionsGroup);
+
+            // 8. Construir Geometrías iniciales
+            buildHelicopter();
+
+            // 9. Eventos
+            window.addEventListener('resize', onWindowResize);
+            setupUIEventListeners();
+
+            // 10. Iniciar Loop de Animación
+            animate();
+        }
+
+        // --- SISTEMA DE ILUMINACIÓN ---
+        function setupLights() {
+            // Luz ambiental tenue
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+            scene.add(ambientLight);
+
+            // Luz direccional principal tipo sol con sombras
+            const mainLight = new THREE.DirectionalLight(0xfffef5, 0.95);
+            mainLight.position.set(15, 25, 20);
+            mainLight.castShadow = true;
+            mainLight.shadow.mapSize.width = 2048;
+            mainLight.shadow.mapSize.height = 2048;
+            mainLight.shadow.camera.near = 0.5;
+            mainLight.shadow.camera.far = 60;
+            const d = 15;
+            mainLight.shadow.camera.left = -d;
+            mainLight.shadow.camera.right = d;
+            mainLight.shadow.camera.top = d;
+            mainLight.shadow.camera.bottom = -d;
+            mainLight.shadow.bias = -0.0005;
+            scene.add(mainLight);
+
+            // Luz de relleno lateral más fría
+            const fillLight = new THREE.DirectionalLight(0xebf4ff, 0.45);
+            fillLight.position.set(-18, 10, -10);
+            scene.add(fillLight);
+
+            // Luz sutil desde abajo para apreciar dobleces
+            const bottomLight = new THREE.DirectionalLight(0xffffff, 0.2);
+            bottomLight.position.set(0, -15, 5);
+            scene.add(bottomLight);
+        }
+
+        // --- GENERADOR DE TEXTURAS PROCEDURALES ---
+        function createMaterials() {
+            // Textura sutil para papel Bond (A)
+            const canvasBond = document.createElement('canvas');
+            canvasBond.width = 256;
+            canvasBond.height = 256;
+            const ctxA = canvasBond.getContext('2d');
+            ctxA.fillStyle = '#fdfdfb';
+            ctxA.fillRect(0, 0, 256, 256);
+            // Ruido sutil de fibra
+            for (let i = 0; i < 6000; i++) {
+                ctxA.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.015)' : 'rgba(255,255,255,0.04)';
+                ctxA.fillRect(Math.random() * 256, Math.random() * 256, 1.5, 1.5);
+            }
+            const textureBond = new THREE.CanvasTexture(canvasBond);
+
+            // Textura para papel Kraft (B)
+            const canvasKraft = document.createElement('canvas');
+            canvasKraft.width = 256;
+            canvasKraft.height = 256;
+            const ctxB = canvasKraft.getContext('2d');
+            ctxB.fillStyle = '#caa57b';
+            ctxB.fillRect(0, 0, 256, 256);
+            for (let i = 0; i < 9000; i++) {
+                ctxB.fillStyle = Math.random() > 0.6 ? 'rgba(70,40,10,0.04)' : 'rgba(255,255,255,0.05)';
+                ctxB.fillRect(Math.random() * 256, Math.random() * 256, 1.8, 1.8);
+            }
+            const textureKraft = new THREE.CanvasTexture(canvasKraft);
+
+            paperMaterials.a = new THREE.MeshStandardMaterial({
+                map: textureBond,
+                color: 0xfaf8f3,
+                roughness: 0.88,
+                metalness: 0.02,
+                side: THREE.DoubleSide
+            });
+
+            paperMaterials.b = new THREE.MeshStandardMaterial({
+                map: textureKraft,
+                color: 0xc8a176,
+                roughness: 0.92,
+                metalness: 0.01,
+                side: THREE.DoubleSide
+            });
+
+            // Cinta celo transparente con reflejo satinado
+            tapeMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.42,
+                roughness: 0.15,
+                metalness: 0.1,
+                transmission: 0.6,
+                ior: 1.48,
+                reflectivity: 0.8,
+                side: THREE.DoubleSide
+            });
+
+            // Clip metálico cromado
+            clipMaterial = new THREE.MeshStandardMaterial({
+                color: 0xd8d8df,
+                metalness: 0.95,
+                roughness: 0.22,
+                side: THREE.DoubleSide
+            });
+
+            // Líneas de pliegue discretas
+            foldLineMaterial = new THREE.LineBasicMaterial({
+                color: 0x475569,
+                transparent: true,
+                opacity: 0.45,
+                linewidth: 1
+            });
+        }
+
+        // --- CONSTRUCCIÓN GEOMÉTRICA DEL HELICÓPTERO ---
+        function buildHelicopter() {
+            // Limpiar partes anteriores
+            while(helicopterGroup.children.length > 0) {
+                helicopterGroup.remove(helicopterGroup.children[0]);
+            }
+            while(rotorGroup.children.length > 0) {
+                rotorGroup.remove(rotorGroup.children[0]);
+            }
+            helicopterGroup.add(rotorGroup);
+
+            const activePaperMat = (params.paperType === 'a') ? paperMaterials.a : paperMaterials.b;
+            const w = params.bodyWidth;       // Ancho total original del cuerpo (4.0 - 6.0 cm)
+            const h = params.bodyLength;      // Largo del cuerpo (6.5 - 9.5 cm)
+            const wingL = params.wingLength;  // Largo de alas (6.5 - 9.5 cm)
+
+            const stemW = w * 0.48;           // Ancho del fuste central plegado (aprox la mitad)
+            const flapW = (w - stemW) / 2;    // Ancho de cada solapa doblada lateral
+            const neckH = 1.3;                // Altura del cuello superior conector
+            const wingW = w * 0.44;           // Ancho de cada aspa del rotor
+
+            // -------------------------------------------------------------
+            // 1. CUERPO CENTRAL (VÁSTAGO) & SOLAPAS PLEGADAS
+            // El fuste inferior tiene solapas dobladas a ambos lados como en el dibujo
+            // -------------------------------------------------------------
+            const bodyGroup = new THREE.Group();
+
+            // Panel central del fuste
+            const stemGeo = new THREE.PlaneGeometry(stemW, h);
+            const stemMesh = new THREE.Mesh(stemGeo, activePaperMat);
+            stemMesh.position.set(0, -h / 2, 0);
+            stemMesh.castShadow = true;
+            stemMesh.receiveShadow = true;
+            bodyGroup.add(stemMesh);
+
+            // Solapa lateral izquierda plegada hacia adelante/adentro (diedro de 165 grados)
+            const leftFlapGeo = new THREE.PlaneGeometry(flapW, h);
+            const leftFlapMesh = new THREE.Mesh(leftFlapGeo, activePaperMat);
+            leftFlapMesh.position.set(-stemW/2 - flapW/2 + 0.01, -h/2, 0.02);
+            leftFlapMesh.rotation.y = 0.08; // ligero volumen de pliegue realista
+            leftFlapMesh.castShadow = true;
+            bodyGroup.add(leftFlapMesh);
+
+            // Solapa lateral derecha plegada hacia adelante/adentro
+            const rightFlapGeo = new THREE.PlaneGeometry(flapW, h);
+            const rightFlapMesh = new THREE.Mesh(rightFlapGeo, activePaperMat);
+            rightFlapMesh.position.set(stemW/2 + flapW/2 - 0.01, -h/2, 0.02);
+            rightFlapMesh.rotation.y = -0.08;
+            rightFlapMesh.castShadow = true;
+            bodyGroup.add(rightFlapMesh);
+
+            // Líneas divisorias de los pliegues verticales laterales
+            const foldLeftPts = [
+                new THREE.Vector3(-stemW/2, 0, 0.03),
+                new THREE.Vector3(-stemW/2, -h, 0.03)
+            ];
+            const foldRightPts = [
+                new THREE.Vector3(stemW/2, 0, 0.03),
+                new THREE.Vector3(stemW/2, -h, 0.03)
+            ];
+            bodyGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(foldLeftPts), foldLineMaterial));
+            bodyGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(foldRightPts), foldLineMaterial));
+
+            // Cuello de transición superior (donde el ancho completo de las alas se une al tallo)
+            const neckShape = new THREE.Shape();
+            neckShape.moveTo(-stemW/2, 0);
+            neckShape.lineTo(-w * 0.48, neckH);
+            neckShape.lineTo(w * 0.48, neckH);
+            neckShape.lineTo(stemW/2, 0);
+            neckShape.closePath();
+            const neckGeo = new THREE.ShapeGeometry(neckShape);
+            const neckMesh = new THREE.Mesh(neckGeo, activePaperMat);
+            neckMesh.position.set(0, 0, 0);
+            neckMesh.castShadow = true;
+            neckMesh.receiveShadow = true;
+            bodyGroup.add(neckMesh);
+
+            // Doblez inferior del cuerpo (base replegada 0.8 cm hacia arriba)
+            const bottomFoldH = 0.9;
+            const bottomFoldGeo = new THREE.PlaneGeometry(w, bottomFoldH);
+            const bottomFoldMesh = new THREE.Mesh(bottomFoldGeo, activePaperMat);
+            bottomFoldMesh.position.set(0, -h + bottomFoldH/2, 0.04);
+            bottomFoldMesh.castShadow = true;
+            bodyGroup.add(bottomFoldMesh);
+
+            // Línea de pliegue inferior
+            const bottomFoldPts = [
+                new THREE.Vector3(-w/2, -h + bottomFoldH, 0.05),
+                new THREE.Vector3(w/2, -h + bottomFoldH, 0.05)
+            ];
+            bodyGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(bottomFoldPts), foldLineMaterial));
+
+            helicopterGroup.add(bodyGroup);
+
+            // -------------------------------------------------------------
+            // 2. ROTOR Y ALAS (DOBLADAS EN OPOSICIÓN PARA AUTOROTACIÓN)
+            // Una inclinada hacia adelante y la otra hacia atrás como en la imagen
+            // -------------------------------------------------------------
+            const wingAngle = THREE.MathUtils.degToRad(46); // Ángulo natural de doblado respecto al fuste
+            const wingSpread = THREE.MathUtils.degToRad(32); // Inclinación en Y / V aerodinámica
+
+            // ALA DERECHA (Plegada hacia un lado)
+            const rightWingPivot = new THREE.Group();
+            rightWingPivot.position.set(w * 0.12, neckH, 0);
+
+            const wingGeo = new THREE.PlaneGeometry(wingW, wingL);
+            const rightWingMesh = new THREE.Mesh(wingGeo, activePaperMat);
+            // El origen de giro está en la base del ala
+            rightWingMesh.position.set(0, wingL / 2, 0);
+            rightWingMesh.castShadow = true;
+            rightWingMesh.receiveShadow = true;
+            rightWingPivot.add(rightWingMesh);
+
+            // Inclinaciones fieles a la vista isométrica del boceto
+            rightWingPivot.rotation.z = -wingAngle; 
+            rightWingPivot.rotation.x = -wingSpread;
+            rotorGroup.add(rightWingPivot);
+
+            // ALA IZQUIERDA (Plegada en el sentido inverso)
+            const leftWingPivot = new THREE.Group();
+            leftWingPivot.position.set(-w * 0.12, neckH, 0);
+
+            const leftWingMesh = new THREE.Mesh(wingGeo, activePaperMat);
+            leftWingMesh.position.set(0, wingL / 2, 0);
+            leftWingMesh.castShadow = true;
+            leftWingMesh.receiveShadow = true;
+            leftWingPivot.add(leftWingMesh);
+
+            leftWingPivot.rotation.z = wingAngle; 
+            leftWingPivot.rotation.x = wingSpread;
+            rotorGroup.add(leftWingPivot);
+
+            // -------------------------------------------------------------
+            // 3. CINTA CELO ADHESIVA (OPCIONALES SI/NO)
+            // -------------------------------------------------------------
+            if (params.tapeJunction) {
+                // Parche cuadrado de celo en la unión central superior ("cinta celo en junta alas")
+                const tapeSquareGeo = new THREE.PlaneGeometry(1.2, 1.1);
+                const tapeSquare = new THREE.Mesh(tapeSquareGeo, tapeMaterial);
+                tapeSquare.position.set(0, neckH - 0.1, 0.035);
+                tapeSquare.castShadow = false;
+                helicopterGroup.add(tapeSquare);
+
+                // Brillo de borde de la cinta
+                const tapeEdgeGeo = new THREE.EdgesGeometry(tapeSquareGeo);
+                const tapeEdge = new THREE.LineSegments(tapeEdgeGeo, new THREE.LineBasicMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.6
+                }));
+                tapeSquare.add(tapeEdge);
+            }
+
+            if (params.tapeBody) {
+                // Dos tiras longitudinales de celofán sobre los laterales plegados del fuste
+                const tapeStripeW = 0.5;
+                const tapeStripeH = h * 0.85;
+
+                const tapeLeftGeo = new THREE.PlaneGeometry(tapeStripeW, tapeStripeH);
+                const tapeLeft = new THREE.Mesh(tapeLeftGeo, tapeMaterial);
+                tapeLeft.position.set(-stemW/2 - flapW*0.35, -h * 0.48, 0.04);
+                helicopterGroup.add(tapeLeft);
+
+                const tapeRightGeo = new THREE.PlaneGeometry(tapeStripeW, tapeStripeH);
+                const tapeRight = new THREE.Mesh(tapeRightGeo, tapeMaterial);
+                tapeRight.position.set(stemW/2 + flapW*0.35, -h * 0.48, 0.04);
+                helicopterGroup.add(tapeRight);
+            }
+
+            // -------------------------------------------------------------
+            // 4. CLIP METÁLICO (PAPERCLIP)
+            // Modelado preciso con curva paramétrica 3D
+            // -------------------------------------------------------------
+            if (params.clip) {
+                const clipMesh = createPaperClip3D();
+                clipMesh.position.set(0, -h + 0.35, 0.08);
+                clipMesh.castShadow = true;
+                helicopterGroup.add(clipMesh);
+            }
+
+            // -------------------------------------------------------------
+            // 5. COTAS DE MEDIDA TIPO BOCETO
+            // -------------------------------------------------------------
+            rebuildDimensions();
+        }
+
+        // --- MODELADO PROCEDURAL DEL CLIP (PAPERCLIP) 3D ---
+        function createPaperClip3D() {
+            // Curva suave tubular formando las 3 lazadas características del sujetapapeles
+            const curve = new THREE.CurvePath();
+            const r1 = 0.35;
+            const r2 = 0.24;
+            const len = 2.4;
+
+            // Tramo 1: recta externa izquierda subiendo
+            curve.add(new THREE.LineCurve3(new THREE.Vector3(-r1, 0, 0), new THREE.Vector3(-r1, len, 0)));
+            // Arco superior externo
+            const arcTop = new THREE.QuadraticBezierCurve3(
+                new THREE.Vector3(-r1, len, 0),
+                new THREE.Vector3(0, len + 0.4, 0),
+                new THREE.Vector3(r1, len, 0)
+            );
+            curve.add(arcTop);
+            // Recta bajando por la derecha
+            curve.add(new THREE.LineCurve3(new THREE.Vector3(r1, len, 0), new THREE.Vector3(r1, -0.2, 0)));
+            // Arco inferior
+            const arcBottom = new THREE.QuadraticBezierCurve3(
+                new THREE.Vector3(r1, -0.2, 0),
+                new THREE.Vector3(0, -0.6, 0),
+                new THREE.Vector3(-r2, -0.2, 0)
+            );
+            curve.add(arcBottom);
+            // Recta interior subiendo
+            curve.add(new THREE.LineCurve3(new THREE.Vector3(-r2, -0.2, 0), new THREE.Vector3(-r2, len * 0.65, 0)));
+            // Arco interior final
+            const arcInnerTop = new THREE.QuadraticBezierCurve3(
+                new THREE.Vector3(-r2, len * 0.65, 0),
+                new THREE.Vector3(0, len * 0.65 + 0.25, 0),
+                new THREE.Vector3(r2 * 0.5, len * 0.65, 0)
+            );
+            curve.add(arcInnerTop);
+
+            const tubeGeo = new THREE.TubeGeometry(curve, 70, 0.052, 8, false);
+            const clipMesh = new THREE.Mesh(tubeGeo, clipMaterial);
+            clipMesh.scale.set(0.9, 0.9, 0.9);
+            return clipMesh;
+        }
+
+        // --- DIBUJADO DE COTAS TIPO DIBUJO TÉCNICO / BOCETO ---
+        function rebuildDimensions() {
+            while(dimensionsGroup.children.length > 0) {
+                dimensionsGroup.remove(dimensionsGroup.children[0]);
+            }
+
+            if (!params.showDimensions) return;
+
+            const w = params.bodyWidth;
+            const h = params.bodyLength;
+            const wingL = params.wingLength;
+            const dimColor = (params.bgStyle === 'notebook') ? 0x1f2937 : 0x93c5fd;
+
+            const dimMat = new THREE.LineBasicMaterial({
+                color: dimColor,
+                transparent: true,
+                opacity: 0.75,
+                linewidth: 1.5
+            });
+
+            // 1. COTA: Longitud alas (a lo largo del eje del ala derecha)
+            const wingAngle = THREE.MathUtils.degToRad(46);
+            const wingDir = new THREE.Vector3(Math.sin(wingAngle), Math.cos(wingAngle), -0.3).normalize();
+            const wingStart = new THREE.Vector3(w * 0.12, 1.3, 0);
+            const wingEnd = wingStart.clone().add(wingDir.clone().multiplyScalar(wingL));
+            
+            // Desplazamiento lateral de la cota
+            const wingOffset = new THREE.Vector3(Math.cos(wingAngle), -Math.sin(wingAngle), 0).multiplyScalar(1.2);
+            const p1W = wingStart.clone().add(wingOffset);
+            const p2W = wingEnd.clone().add(wingOffset);
+
+            createDimensionLine(p1W, p2W, wingStart, wingEnd, `${params.wingLength.toFixed(1)} cm`, dimMat, dimColor);
+
+            // 2. COTA: Longitud cuerpo (paralela a la derecha del fuste)
+            const bodyOffset = (w / 2) + 1.2;
+            const p1B = new THREE.Vector3(bodyOffset, 0, 0);
+            const p2B = new THREE.Vector3(bodyOffset, -h, 0);
+            createDimensionLine(p1B, p2B, new THREE.Vector3(w/2, 0, 0), new THREE.Vector3(w/2, -h, 0), `${params.bodyLength.toFixed(1)} cm`, dimMat, dimColor);
+
+            // 3. COTA: Ancho cuerpo (horizontal debajo de la base)
+            const p1Wd = new THREE.Vector3(-w/2, -h - 1.2, 0);
+            const p2Wd = new THREE.Vector3(w/2, -h - 1.2, 0);
+            createDimensionLine(p1Wd, p2Wd, new THREE.Vector3(-w/2, -h, 0), new THREE.Vector3(w/2, -h, 0), `${params.bodyWidth.toFixed(1)} cm`, dimMat, dimColor);
+        }
+
+        // Helper para crear líneas con flechas y etiquetas de texto
+        function createDimensionLine(p1, p2, ref1, ref2, text, material, textColorHex) {
+            const group = new THREE.Group();
+
+            // Líneas de referencia desde el modelo
+            const refGeo1 = new THREE.BufferGeometry().setFromPoints([ref1, p1]);
+            const refGeo2 = new THREE.BufferGeometry().setFromPoints([ref2, p2]);
+            group.add(new THREE.Line(refGeo1, material));
+            group.add(new THREE.Line(refGeo2, material));
+
+            // Línea principal de cota
+            const mainLineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+            group.add(new THREE.Line(mainLineGeo, material));
+
+            // Remates en flechas o barras inclinadas estilo croquis
+            const dir = p2.clone().sub(p1).normalize();
+            const normal = new THREE.Vector3(-dir.y, dir.x, dir.z).normalize().multiplyScalar(0.25);
+            
+            // Tics terminales
+            const tic1 = new THREE.BufferGeometry().setFromPoints([p1.clone().add(normal), p1.clone().sub(normal)]);
+            const tic2 = new THREE.BufferGeometry().setFromPoints([p2.clone().add(normal), p2.clone().sub(normal)]);
+            group.add(new THREE.Line(tic1, material));
+            group.add(new THREE.Line(tic2, material));
+
+            // Sprite con Texto de Cota
+            const mid = p1.clone().add(p2).multiplyScalar(0.5);
+            const textSprite = createTextSprite(text, textColorHex);
+            textSprite.position.copy(mid).add(normal.clone().multiplyScalar(1.2));
+            group.add(textSprite);
+
+            dimensionsGroup.add(group);
+        }
+
+        // Genera un sprite 2D nítido para la cota
+        function createTextSprite(text, colorHex) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 96;
+            const ctx = canvas.getContext('2d');
+
+            ctx.clearRect(0, 0, 256, 96);
+            ctx.fillStyle = (params.bgStyle === 'notebook') ? 'rgba(255,255,255,0.85)' : 'rgba(20,28,45,0.85)';
+            roundRect(ctx, 10, 10, 236, 76, 16);
+            ctx.fill();
+            ctx.strokeStyle = (params.bgStyle === 'notebook') ? '#cbd5e1' : '#334155';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.font = 'bold 36px "Architects Daughter", cursive, sans-serif';
+            ctx.fillStyle = (params.bgStyle === 'notebook') ? '#0f172a' : '#f8fafc';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, 128, 48);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+            const sprite = new THREE.Sprite(spriteMat);
+            sprite.scale.set(1.9, 0.72, 1);
+            return sprite;
+        }
+
+        function roundRect(ctx, x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+        }
+
+        // --- RESTABLECER CÁMARA A VISTA ISOMÉTRICA ÓPTIMA ---
+        function resetCamera() {
+            camera.position.set(14, 8, 22);
+            if (controls) {
+                controls.target.set(0, -1, 0);
+                controls.update();
+            }
+        }
+
+        // --- CONECTORES DE LA INTERFAZ DE USUARIO ---
+        function setupUIEventListeners() {
+            // Sliders
+            const sWing = document.getElementById('sliderWingLength');
+            const sBody = document.getElementById('sliderBodyLength');
+            const sWidth = document.getElementById('sliderBodyWidth');
+
+            sWing.addEventListener('input', (e) => {
+                params.wingLength = parseFloat(e.target.value);
+                document.getElementById('valWingLength').innerText = params.wingLength.toFixed(1) + ' cm';
+                buildHelicopter();
+            });
+
+            sBody.addEventListener('input', (e) => {
+                params.bodyLength = parseFloat(e.target.value);
+                document.getElementById('valBodyLength').innerText = params.bodyLength.toFixed(1) + ' cm';
+                buildHelicopter();
+            });
+
+            sWidth.addEventListener('input', (e) => {
+                params.bodyWidth = parseFloat(e.target.value);
+                document.getElementById('valBodyWidth').innerText = params.bodyWidth.toFixed(1) + ' cm';
+                buildHelicopter();
+            });
+
+            // Checkboxes
+            document.getElementById('checkTapeJunction').addEventListener('change', (e) => {
+                params.tapeJunction = e.target.checked;
+                buildHelicopter();
+            });
+
+            document.getElementById('checkTapeBody').addEventListener('change', (e) => {
+                params.tapeBody = e.target.checked;
+                buildHelicopter();
+            });
+
+            document.getElementById('checkClip').addEventListener('change', (e) => {
+                params.clip = e.target.checked;
+                buildHelicopter();
+            });
+
+            document.getElementById('checkDimensions').addEventListener('change', (e) => {
+                params.showDimensions = e.target.checked;
+                rebuildDimensions();
+            });
+
+            // Botones Selección de Papel
+            const btnPaperA = document.getElementById('btnPaperA');
+            const btnPaperB = document.getElementById('btnPaperB');
+
+            btnPaperA.addEventListener('click', () => {
+                params.paperType = 'a';
+                btnPaperA.classList.add('border-blue-600', 'bg-white');
+                btnPaperA.classList.remove('border-stone-200');
+                btnPaperB.classList.remove('border-blue-600', 'bg-white');
+                btnPaperB.classList.add('border-stone-200');
+                buildHelicopter();
+            });
+
+            btnPaperB.addEventListener('click', () => {
+                params.paperType = 'b';
+                btnPaperB.classList.add('border-blue-600', 'bg-white');
+                btnPaperB.classList.remove('border-stone-200');
+                btnPaperA.classList.remove('border-blue-600', 'bg-white');
+                btnPaperA.classList.add('border-stone-200');
+                buildHelicopter();
+            });
+
+            // Botón Resetear Vista
+            document.getElementById('btnResetCamera').addEventListener('click', resetCamera);
+
+            // Botón Alternar Fondo Cuaderno / Estudio
+            const btnBgToggle = document.getElementById('btnBgToggle');
+            const mainContainer = document.getElementById('mainContainer');
+            btnBgToggle.addEventListener('click', () => {
+                if (params.bgStyle === 'notebook') {
+                    params.bgStyle = 'studio';
+                    mainContainer.classList.remove('bg-grid-notebook');
+                    mainContainer.classList.add('bg-studio');
+                } else {
+                    params.bgStyle = 'notebook';
+                    mainContainer.classList.remove('bg-studio');
+                    mainContainer.classList.add('bg-grid-notebook');
+                }
+                rebuildDimensions();
+            });
+
+            // Botón Alternar Panel en Móviles
+            const btnTogglePanel = document.getElementById('btnTogglePanel');
+            const controlsPanel = document.getElementById('controlsPanel');
+            btnTogglePanel.addEventListener('click', () => {
+                controlsPanel.classList.toggle('translate-x-[120%]');
+            });
+
+            // Botón Simulación de Vuelo / Rotación
+            const btnFlight = document.getElementById('btnFlight');
+            const flightIcon = document.getElementById('flightIcon');
+            const flightText = document.getElementById('flightText');
+
+            btnFlight.addEventListener('click', () => {
+                params.isFlying = !params.isFlying;
+                if (params.isFlying) {
+                    flightIcon.className = "fa-solid fa-pause text-xs";
+                    flightText.innerText = "Detener Vuelo";
+                    btnFlight.classList.replace('from-blue-600', 'from-amber-600');
+                    btnFlight.classList.replace('to-indigo-600', 'to-red-600');
+                } else {
+                    flightIcon.className = "fa-solid fa-play text-xs";
+                    flightText.innerText = "Simular Autorotación";
+                    btnFlight.classList.replace('from-amber-600', 'from-blue-600');
+                    btnFlight.classList.replace('to-red-600', 'to-indigo-600');
+                    // Restaurar posición y orientación neutral
+                    helicopterGroup.position.set(0, 0, 0);
+                    helicopterGroup.rotation.set(0, 0, 0);
+                }
+            });
+        }
+
+        // --- REDIMENSIONADO RESPONSIVE ---
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- BUCLE DE ANIMACIÓN (RENDER LOOP) ---
+        let flightTime = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Si está activo el modo vuelo, simula el descenso helicoidal y viento
+            if (params.isFlying) {
+                flightTime += 0.05;
+                // Velocidad de giro proporcional a la longitud de alas (alas más cortas giran más rápido)
+                const spinSpeed = 0.18 * (9.5 / params.wingLength);
+                helicopterGroup.rotation.y += spinSpeed;
+
+                // Suave balanceo y oscilación vertical en suspensión
+                helicopterGroup.position.y = Math.sin(flightTime * 2) * 0.45;
+                helicopterGroup.rotation.z = Math.sin(flightTime * 3) * 0.05;
+                helicopterGroup.rotation.x = Math.cos(flightTime * 2) * 0.04;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Iniciar al cargar la ventana
+        window.onload = init;
+    </script>
+</body>
+</html>
